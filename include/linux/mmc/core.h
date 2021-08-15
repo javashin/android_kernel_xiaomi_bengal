@@ -58,7 +58,8 @@ struct mmc_command {
  */
 #define MMC_RSP_NONE	(0)
 #define MMC_RSP_R1	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE)
-#define MMC_RSP_R1B	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE|MMC_RSP_BUSY)
+#define MMC_RSP_R1B	\
+	(MMC_RSP_PRESENT|MMC_RSP_CRC|MMC_RSP_OPCODE|MMC_RSP_BUSY)
 #define MMC_RSP_R2	(MMC_RSP_PRESENT|MMC_RSP_136|MMC_RSP_CRC)
 #define MMC_RSP_R3	(MMC_RSP_PRESENT)
 #define MMC_RSP_R4	(MMC_RSP_PRESENT)
@@ -168,7 +169,24 @@ struct mmc_request {
 	bool			cap_cmd_during_tfr;
 
 	int			tag;
+#ifdef CONFIG_MMC_CRYPTO
+	int crypto_key_slot;
+	u64 data_unit_num;
+	const struct blk_crypto_key *crypto_key;
+#endif
 };
+
+#ifdef CONFIG_MMC_CRYPTO
+static inline bool mmc_request_crypto_enabled(const struct mmc_request *mrq)
+{
+	return mrq->crypto_key != NULL;
+}
+#else
+static inline bool mmc_request_crypto_enabled(const struct mmc_request *mrq)
+{
+	return false;
+}
+#endif
 
 struct mmc_card;
 
@@ -179,5 +197,6 @@ int mmc_wait_for_cmd(struct mmc_host *host, struct mmc_command *cmd,
 int mmc_hw_reset(struct mmc_host *host);
 int mmc_sw_reset(struct mmc_host *host);
 void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card);
+extern void mmc_flush_detect_work(struct mmc_host *host);
 
 #endif /* LINUX_MMC_CORE_H */

@@ -253,7 +253,8 @@ phys_addr_t __init_memblock memblock_find_in_range_node(phys_addr_t size,
 	phys_addr_t kernel_end, ret;
 
 	/* pump up @end */
-	if (end == MEMBLOCK_ALLOC_ACCESSIBLE)
+	if (end == MEMBLOCK_ALLOC_ACCESSIBLE ||
+	    end == MEMBLOCK_ALLOC_KASAN)
 		end = memblock.current_limit;
 
 	/* avoid allocating the first page */
@@ -799,9 +800,11 @@ int __init_memblock memblock_free(phys_addr_t base, phys_addr_t size)
 	memblock_dbg("   memblock_free: [%pa-%pa] %pF\n",
 		     &base, &end, (void *)_RET_IP_);
 
-	kmemleak_free_part_phys(base, size);
+	if (base < memblock.current_limit)
+		kmemleak_free_part(__va(base), size);
 	return memblock_remove_range(&memblock.reserved, base, size);
 }
+EXPORT_SYMBOL_GPL(memblock_free);
 
 int __init_memblock memblock_reserve(phys_addr_t base, phys_addr_t size)
 {
@@ -1248,7 +1251,9 @@ static phys_addr_t __init memblock_alloc_range_nid(phys_addr_t size,
 		 * The min_count is set to 0 so that memblock allocations are
 		 * never reported as leaks.
 		 */
-		kmemleak_alloc_phys(found, size, 0, 0);
+		if (found < memblock.current_limit)
+			kmemleak_alloc(__va(found), size, 0, 0);
+
 		return found;
 	}
 	return 0;
@@ -1258,6 +1263,8 @@ phys_addr_t __init memblock_alloc_range(phys_addr_t size, phys_addr_t align,
 					phys_addr_t start, phys_addr_t end,
 					enum memblock_flags flags)
 {
+	memblock_dbg("%s: size: %llu align: %llu %pS\n",
+		     __func__, (u64)size, (u64)align, (void *)_RET_IP_);
 	return memblock_alloc_range_nid(size, align, start, end, NUMA_NO_NODE,
 					flags);
 }
@@ -1287,6 +1294,8 @@ again:
 
 phys_addr_t __init __memblock_alloc_base(phys_addr_t size, phys_addr_t align, phys_addr_t max_addr)
 {
+	memblock_dbg("%s: size: %llu align: %llu %pS\n",
+		     __func__, (u64)size, (u64)align, (void *)_RET_IP_);
 	return memblock_alloc_base_nid(size, align, max_addr, NUMA_NO_NODE,
 				       MEMBLOCK_NONE);
 }
@@ -1306,6 +1315,8 @@ phys_addr_t __init memblock_alloc_base(phys_addr_t size, phys_addr_t align, phys
 
 phys_addr_t __init memblock_alloc(phys_addr_t size, phys_addr_t align)
 {
+	memblock_dbg("%s: size: %llu align: %llu %pS\n",
+		     __func__, (u64)size, (u64)align, (void *)_RET_IP_);
 	return memblock_alloc_base(size, align, MEMBLOCK_ALLOC_ACCESSIBLE);
 }
 
@@ -1401,13 +1412,15 @@ again:
 done:
 	ptr = phys_to_virt(alloc);
 
-	/*
-	 * The min_count is set to 0 so that bootmem allocated blocks
-	 * are never reported as leaks. This is because many of these blocks
-	 * are only referred via the physical address which is not
-	 * looked up by kmemleak.
-	 */
-	kmemleak_alloc(ptr, size, 0, 0);
+	/* Skip kmemleak for kasan_init() due to high volume. */
+	if (max_addr != MEMBLOCK_ALLOC_KASAN)
+		/*
+		 * The min_count is set to 0 so that bootmem allocated
+		 * blocks are never reported as leaks. This is because many
+		 * of these blocks are only referred via the physical
+		 * address which is not looked up by kmemleak.
+		 */
+		kmemleak_alloc(ptr, size, 0, 0);
 
 	return ptr;
 }
@@ -1631,6 +1644,11 @@ static phys_addr_t __init_memblock __find_max_addr(phys_addr_t limit)
 	return max_addr;
 }
 
+phys_addr_t __init_memblock memblock_max_addr(phys_addr_t limit)
+{
+	return __find_max_addr(limit);
+}
+
 void __init memblock_enforce_memory_limit(phys_addr_t limit)
 {
 	phys_addr_t max_addr = PHYS_ADDR_MAX;
@@ -1769,6 +1787,15 @@ bool __init_memblock memblock_is_region_memory(phys_addr_t base, phys_addr_t siz
 	return (memblock.memory.regions[idx].base +
 		 memblock.memory.regions[idx].size) >= end;
 }
+
+bool __init_memblock memblock_overlaps_memory(phys_addr_t base,
+					      phys_addr_t size)
+{
+	memblock_cap_size(base, &size);
+
+	return memblock_overlaps_region(&memblock.memory, base, size);
+}
+EXPORT_SYMBOL_GPL(memblock_overlaps_memory);
 
 /**
  * memblock_is_region_reserved - check if a region intersects reserved memory

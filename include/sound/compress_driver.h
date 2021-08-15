@@ -57,7 +57,6 @@ struct snd_compr_runtime {
  * @direction: stream direction, playback/recording
  * @metadata_set: metadata set flag, true when set
  * @next_track: has userspace signal next track transition, true when set
- * @partial_drain: undergoing partial_drain for stream, true when set
  * @private_data: pointer to DSP private data
  */
 struct snd_compr_stream {
@@ -69,8 +68,8 @@ struct snd_compr_stream {
 	enum snd_compr_direction direction;
 	bool metadata_set;
 	bool next_track;
-	bool partial_drain;
 	void *private_data;
+	struct snd_soc_pcm_runtime *be;
 };
 
 /**
@@ -85,6 +84,8 @@ struct snd_compr_stream {
  * @get_params: retrieve the codec parameters, mandatory
  * @set_metadata: Set the metadata values for a stream
  * @get_metadata: retrieves the requested metadata values from stream
+ * @set_next_track_param: send codec specific data of subsequent track
+ * in gapless
  * @trigger: Trigger operations like start, pause, resume, drain, stop.
  * This callback is mandatory
  * @pointer: Retrieve current h/w pointer information. Mandatory
@@ -107,6 +108,8 @@ struct snd_compr_ops {
 			struct snd_compr_metadata *metadata);
 	int (*get_metadata)(struct snd_compr_stream *stream,
 			struct snd_compr_metadata *metadata);
+	int (*set_next_track_param)(struct snd_compr_stream *stream,
+			union snd_codec_options *codec_options);
 	int (*trigger)(struct snd_compr_stream *stream, int cmd);
 	int (*pointer)(struct snd_compr_stream *stream,
 			struct snd_compr_tstamp *tstamp);
@@ -154,6 +157,7 @@ int snd_compress_register(struct snd_compr *device);
 int snd_compress_deregister(struct snd_compr *device);
 int snd_compress_new(struct snd_card *card, int device,
 			int type, const char *id, struct snd_compr *compr);
+void snd_compress_free(struct snd_card *card, struct snd_compr *compr);
 
 /* dsp driver callback apis
  * For playback: driver should call snd_compress_fragment_elapsed() to let the
@@ -173,13 +177,7 @@ static inline void snd_compr_drain_notify(struct snd_compr_stream *stream)
 	if (snd_BUG_ON(!stream))
 		return;
 
-	/* for partial_drain case we are back to running state on success */
-	if (stream->partial_drain) {
-		stream->runtime->state = SNDRV_PCM_STATE_RUNNING;
-		stream->partial_drain = false; /* clear this flag as well */
-	} else {
-		stream->runtime->state = SNDRV_PCM_STATE_SETUP;
-	}
+	stream->runtime->state = SNDRV_PCM_STATE_SETUP;
 
 	wake_up(&stream->runtime->sleep);
 }

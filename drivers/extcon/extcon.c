@@ -487,6 +487,21 @@ int extcon_sync(struct extcon_dev *edev, unsigned int id)
 }
 EXPORT_SYMBOL_GPL(extcon_sync);
 
+int extcon_blocking_sync(struct extcon_dev *edev, unsigned int id, u8 val)
+{
+	int index;
+
+	if (!edev)
+		return -EINVAL;
+
+	index = find_cable_index_by_id(edev, id);
+	if (index < 0)
+		return index;
+
+	return blocking_notifier_call_chain(&edev->bnh[index], val, edev);
+}
+EXPORT_SYMBOL(extcon_blocking_sync);
+
 /**
  * extcon_get_state() - Get the state of an external connector.
  * @edev:	the extcon device
@@ -866,6 +881,17 @@ int extcon_set_property_capability(struct extcon_dev *edev, unsigned int id,
 }
 EXPORT_SYMBOL_GPL(extcon_set_property_capability);
 
+int extcon_set_mutually_exclusive(struct extcon_dev *edev,
+				const u32 *exclusive)
+{
+	if (!edev)
+		return -EINVAL;
+
+	edev->mutually_exclusive = exclusive;
+	return 0;
+}
+EXPORT_SYMBOL(extcon_set_mutually_exclusive);
+
 /**
  * extcon_get_extcon_dev() - Get the extcon device instance from the name.
  * @extcon_name:	the extcon name provided with extcon_dev_register()
@@ -924,6 +950,38 @@ int extcon_register_notifier(struct extcon_dev *edev, unsigned int id,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(extcon_register_notifier);
+
+int extcon_register_blocking_notifier(struct extcon_dev *edev, unsigned int id,
+			struct notifier_block *nb)
+{
+	int idx = -EINVAL;
+
+	if (!edev || !nb)
+		return -EINVAL;
+
+	idx = find_cable_index_by_id(edev, id);
+	if (idx < 0)
+		return idx;
+
+	return blocking_notifier_chain_register(&edev->bnh[idx], nb);
+}
+EXPORT_SYMBOL(extcon_register_blocking_notifier);
+
+int extcon_unregister_blocking_notifier(struct extcon_dev *edev,
+			unsigned int id, struct notifier_block *nb)
+{
+	int idx;
+
+	if (!edev || !nb)
+		return -EINVAL;
+
+	idx = find_cable_index_by_id(edev, id);
+	if (idx < 0)
+		return idx;
+
+	return blocking_notifier_chain_unregister(&edev->bnh[idx], nb);
+}
+EXPORT_SYMBOL(extcon_unregister_blocking_notifier);
 
 /**
  * extcon_unregister_notifier() - Unregister a notifier block from the extcon.
@@ -1259,8 +1317,17 @@ int extcon_dev_register(struct extcon_dev *edev)
 		goto err_dev;
 	}
 
-	for (index = 0; index < edev->max_supported; index++)
+	edev->bnh = devm_kzalloc(&edev->dev,
+			sizeof(*edev->bnh) * edev->max_supported, GFP_KERNEL);
+	if (!edev->bnh) {
+		ret = -ENOMEM;
+		goto err_dev;
+	}
+
+	for (index = 0; index < edev->max_supported; index++) {
 		RAW_INIT_NOTIFIER_HEAD(&edev->nh[index]);
+		BLOCKING_INIT_NOTIFIER_HEAD(&edev->bnh[index]);
+	}
 
 	RAW_INIT_NOTIFIER_HEAD(&edev->nh_all);
 
@@ -1421,6 +1488,7 @@ const char *extcon_get_edev_name(struct extcon_dev *edev)
 {
 	return !edev ? NULL : edev->name;
 }
+EXPORT_SYMBOL_GPL(extcon_get_edev_name);
 
 static int __init extcon_class_init(void)
 {

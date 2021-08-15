@@ -26,14 +26,20 @@
 #include <linux/module.h>
 #include <linux/irq_work.h>
 #include <linux/posix-timers.h>
+#include <linux/timer.h>
 #include <linux/context_tracking.h>
 #include <linux/mm.h>
+#include <linux/rq_stats.h>
 
 #include <asm/irq_regs.h>
 
 #include "tick-internal.h"
 
 #include <trace/events/timer.h>
+
+struct rq_data rq_info;
+struct workqueue_struct *rq_wq;
+spinlock_t rq_lock;
 
 /*
  * Per-CPU nohz control structure
@@ -924,6 +930,11 @@ static void __tick_nohz_idle_stop_tick(struct tick_sched *ts)
 	ktime_t expires;
 	int cpu = smp_processor_id();
 
+#ifdef CONFIG_SMP
+	if (check_pending_deferrable_timers(cpu))
+		raise_softirq_irqoff(TIMER_SOFTIRQ);
+#endif
+
 	/*
 	 * If tick_nohz_get_sleep_length() ran tick_nohz_next_event(), the
 	 * tick timer expiration time is known already.
@@ -1067,6 +1078,7 @@ ktime_t tick_nohz_get_sleep_length(ktime_t *delta_next)
 
 	return ktime_sub(next_event, now);
 }
+EXPORT_SYMBOL_GPL(tick_nohz_get_sleep_length);
 
 /**
  * tick_nohz_get_idle_calls_cpu - return the current idle calls counter value
@@ -1257,6 +1269,17 @@ void tick_irq_enter(void)
  * High resolution timer specific code
  */
 #ifdef CONFIG_HIGH_RES_TIMERS
+static void (*wake_callback)(void);
+
+void register_tick_sched_wakeup_callback(void (*cb)(void))
+{
+	if (!wake_callback)
+		wake_callback = cb;
+	else
+		pr_warn("tick-sched wake cb already exists; skipping.\n");
+}
+EXPORT_SYMBOL_GPL(register_tick_sched_wakeup_callback);
+
 /*
  * We rearm the timer until we get disabled by the idle code.
  * Called with interrupts disabled.
@@ -1274,8 +1297,16 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 	 * Do not call, when we are not in irq context and have
 	 * no valid regs pointer
 	 */
-	if (regs)
+	if (regs) {
 		tick_sched_handle(ts, regs);
+		if (rq_info.init == 1 && wake_callback &&
+				tick_do_timer_cpu == smp_processor_id()) {
+			/*
+			 * wakeup user if needed
+			 */
+			wake_callback();
+		}
+	}
 	else
 		ts->next_tick = 0;
 
@@ -1391,3 +1422,9 @@ int tick_check_oneshot_change(int allow_nohz)
 	tick_nohz_switch_to_nohz();
 	return 0;
 }
+
+ktime_t *get_next_event_cpu(unsigned int cpu)
+{
+	return &(per_cpu(tick_cpu_device, cpu).evtdev->next_event);
+}
+EXPORT_SYMBOL_GPL(get_next_event_cpu);
