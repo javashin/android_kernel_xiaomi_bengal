@@ -719,6 +719,9 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, restrict)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, stringop-overflow)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, stringop-truncation)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, zero-length-bounds)
+KBUILD_CFLAGS   += $(call cc-option, -Wno-format)
+KBUILD_CFLAGS   += $(call cc-option, -Wno-maybe-uninitialized)
+KBUILD_CFLAGS   += $(call cc-option, -Wno-psabi)
 
 ifeq ($(ld-name),lld)
 LDFLAGS += -O3
