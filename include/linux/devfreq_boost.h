@@ -9,7 +9,7 @@
 #include <linux/types.h>
 
 enum df_device {
-	DEVFREQ_CPU_DDR_BW,
+	DEVFREQ_CPU_LLCC_DDR_BW,
 	DEVFREQ_MAX
 };
 
