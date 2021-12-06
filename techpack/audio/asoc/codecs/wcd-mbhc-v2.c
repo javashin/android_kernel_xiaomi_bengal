@@ -25,8 +25,12 @@
 #include "wcd-mbhc-legacy.h"
 #include "wcd-mbhc-adc.h"
 #include <asoc/wcd-mbhc-v2-api.h>
-#include <linux/switch.h>
 
+#if defined(CONFIG_MACH_XIAOMI_LIME) || defined(CONFIG_MACH_POCO_CITRUS)
+#include <linux/switch.h>
+#endif
+
+#if defined(CONFIG_MACH_XIAOMI_LIME) || defined(CONFIG_MACH_POCO_CITRUS)
 /* cable type show in sys/class/switch/h2w/state */
 enum accdet_type_state_value {
 	NO_DEVICE_STATE = 0,
@@ -37,6 +41,8 @@ enum accdet_type_state_value {
 };
 
 static struct switch_dev accdet_data;
+#endif
+
 void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 			  struct snd_soc_jack *jack, int status, int mask)
 {
@@ -932,7 +938,9 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 
 	pr_debug("%s: mbhc->current_plug: %d detection_type: %d\n", __func__,
 			mbhc->current_plug, detection_type);
-        switch_set_state(&accdet_data, detection_type ? PLUG_IN_STATE : NO_DEVICE_STATE);
+#if defined(CONFIG_MACH_XIAOMI_LIME) || defined(CONFIG_MACH_POCO_CITRUS)
+	switch_set_state(&accdet_data, detection_type ? PLUG_IN_STATE : NO_DEVICE_STATE);
+#endif
 	if (mbhc->mbhc_fn->wcd_cancel_hs_detect_plug)
 		mbhc->mbhc_fn->wcd_cancel_hs_detect_plug(mbhc,
 						&mbhc->correct_plug_swch);
@@ -1752,13 +1760,16 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_component *component,
 	const char *hph_thre = "qcom,msm-mbhc-hs-mic-min-threshold-mv";
 
 	pr_debug("%s: enter\n", __func__);
-        accdet_data.name = "h2w";
+
+#if defined(CONFIG_MACH_XIAOMI_LIME) || defined(CONFIG_MACH_POCO_CITRUS)
+	accdet_data.name = "h2w";
 	accdet_data.index = 0;
 	accdet_data.state = 0;
 	ret = switch_dev_register(&accdet_data);
 	if (ret) {
 		pr_notice("%s switch_dev_register fail:%d!\n", __func__,ret);
 	}
+#endif
 
 	ret = of_property_read_u32(card->dev->of_node, hph_switch, &hph_swh);
 	if (ret) {
@@ -2016,7 +2027,9 @@ err_mbhc_sw_irq:
 	mutex_destroy(&mbhc->codec_resource_lock);
 err:
 	pr_debug("%s: leave ret %d\n", __func__, ret);
+#if defined(CONFIG_MACH_XIAOMI_LIME) || defined(CONFIG_MACH_POCO_CITRUS)
 	switch_dev_unregister(&accdet_data);
+#endif
 	return ret;
 }
 EXPORT_SYMBOL(wcd_mbhc_init);
@@ -2048,8 +2061,9 @@ void wcd_mbhc_deinit(struct wcd_mbhc *mbhc)
 	mutex_destroy(&mbhc->codec_resource_lock);
 	mutex_destroy(&mbhc->hphl_pa_lock);
 	mutex_destroy(&mbhc->hphr_pa_lock);
-
+#if !defined(CONFIG_MACH_XIAOMI_LIME) || !defined(CONFIG_MACH_POCO_CITRUS)
 	switch_dev_unregister(&accdet_data);
+#endif
 }
 EXPORT_SYMBOL(wcd_mbhc_deinit);
 
